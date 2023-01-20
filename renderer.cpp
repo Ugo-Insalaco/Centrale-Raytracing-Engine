@@ -180,7 +180,6 @@ class Scene{
                 Sphere renderedSphere = spheres.at(firstSphere);
                 Vector P = ray.origin + t * ray.direction;
                 Vector N = (P - renderedSphere.position);
-        
                 N.normalize();
 
                 if(renderedSphere.diffuse){
@@ -251,18 +250,20 @@ class Scene{
 
 int main() {
     double pi = 3.14159;
-    Sphere sphere(Vector(0,0,0), Vector(0.5,0.2,0.5), 10, false);
+    Sphere sphere(Vector(15,0,0), Vector(0.5,0.2,0.5), 10, false);
+    Sphere sphere2(Vector(-15,0,0), Vector(0.5,0.2,0.5), 10, false);
     Sphere wall1(Vector(0,0,-1000), Vector(0.2,0.5,0.1), 940);
     Sphere wall2(Vector(0,1000,0), Vector(0.5,0.2,0.1), 940);
     Sphere wall3(Vector(0,0,1000), Vector(0.5,0.3,0.2), 940);
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
     Sphere wall5(Vector(1000,0,0), Vector(0.6,0.2,0.5), 940);
     Sphere wall6(Vector(-1000,0,0), Vector(0.1,0.5,0.5), 940);
-    Camera camera(Vector(0,0,55), pi/3, 512, 512);
+    Camera camera(Vector(0,0,55), pi/3, 1024, 1024);
     Light light(Vector(-10, 20, 40), 2E10);
 
     Scene scene(camera, light);
     scene.addSphere(sphere);
+    scene.addSphere(sphere2);
     scene.addSphere(wall1);
     scene.addSphere(wall2);
     scene.addSphere(wall3);
