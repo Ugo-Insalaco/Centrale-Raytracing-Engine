@@ -5,6 +5,7 @@
         "utility": "cpp",
         "vector": "cpp",
         "limits": "cpp",
-        "xiosbase": "cpp"
+        "xiosbase": "cpp",
+        "ostream": "cpp"
     }
 }

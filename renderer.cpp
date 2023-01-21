@@ -81,13 +81,15 @@ class Ray{
         Vector direction;
 };
 
+enum class Texture {Diffuse, Mirror, Transparent};
 class Sphere{
     public:
-        Sphere(Vector position, Vector albedo, double radius, bool diffuse = true){
+        Sphere(Vector position, Vector albedo, double radius, Texture texture = Texture::Diffuse, float refractionIndex = 1){
             this->position = position;
             this->albedo = albedo;
             this->radius = radius;
-            this->diffuse = diffuse;
+            this->texture = texture;
+            this->refractionIndex = refractionIndex;
         }
         float intersection(Ray ray){
             double b = 2*dot(ray.direction, ray.origin - this->position);
@@ -98,19 +100,14 @@ class Sphere{
                 double sqrtDelta = sqrt(delta);
                 double t1 = (-b-sqrtDelta)/(2*a);
                 double t2 = (-b+sqrtDelta)/(2*a);
-                double t;
-                if(t1 >=0 && t1 <= t2){
+                double t = -1;
+                if(t1 >=0){
                     t = t1;
                 }
-                else if (t2 >=0 && t2 <= t1){
+                if (t2 >=0 && t2 <= t1){
                     t = t2;
                 }
-                if(t1 >=0 || t2 >=0){
-                    return t;
-                }
-                else{
-                    return -1;
-                }
+                return t;
             }
             return -1;
         }
@@ -118,7 +115,8 @@ class Sphere{
         Vector position;
         Vector albedo;
         double radius;
-        bool diffuse;
+        Texture texture;
+        float refractionIndex;
 };
 
 class Camera{
@@ -161,7 +159,7 @@ class Scene{
             for (unsigned  sphereIndex = 0; sphereIndex < spheres.size(); sphereIndex++){
                 Sphere sphere = spheres.at(sphereIndex);
                 float t2 = sphere.intersection(ray);
-                if((t2 >= 0 && t2 <= t) || t == -1){
+                if(t2 >= 0 && (t2 <= t || t == -1)){
                     t = t2;
                     index = sphereIndex;
                 }
@@ -169,7 +167,7 @@ class Scene{
         };
 
         Vector getColor(const Ray &ray, int numRebond){
-            Vector noir(0,0,0);
+            Vector noir(0,0,255);
             if(numRebond < 0){
                 return noir;
             }
@@ -182,13 +180,44 @@ class Scene{
                 Vector N = (P - renderedSphere.position);
                 N.normalize();
 
-                if(renderedSphere.diffuse){
+                switch (renderedSphere.texture)
+                {
+                case Texture::Diffuse:
                     return getShadow(P, N, renderedSphere);
+                    break;
+                case Texture::Mirror:{
+                    Vector newDirection = ray.direction - 2*dot(ray.direction, N)*N;
+                    Vector Peps = P + epsilon * N;
+                    Ray newRay(Peps, newDirection);
+                    return getColor(newRay, numRebond - 1);
+                    break;
                 }
-                Vector newDirection = ray.direction - 2*dot(ray.direction, N)*N;
-                Vector Peps = P + epsilon * N;
-                Ray newRay(Peps, newDirection);
-                return getColor(newRay, numRebond - 1);
+                case Texture::Transparent: {
+                    float n1 = ambiantIndex, n2 = renderedSphere.refractionIndex;
+                    float dotN = dot(N, ray.direction);
+                    if(dotN > 0){
+                        swap(n1, n2);
+                        N = (-1)*N;
+                    }
+                    float decision = 1-sqr(n1/n2)*(1-sqr(dotN));
+                    if(decision >= 0){
+                        Vector wtT = (n1/n2)*(ray.direction+(-dotN)*N);
+                        Vector wtN = -sqrt(decision)*N;
+                        Vector wt = wtT + wtN;
+                        Vector Peps = P + (-1)*epsilon * N;
+                        Ray newRay(Peps, wt);
+                        return getColor(newRay, numRebond - 1);
+                    }
+                    Vector newDirection = ray.direction - 2*dot(ray.direction, N)*N;
+                    Vector Peps = P + epsilon * N;
+                    Ray newRay(Peps, newDirection);
+                    return getColor(newRay, numRebond - 1);
+                    break;
+                }
+                default: 
+                    return noir;
+                    break;
+                }
             };
             return noir;
         }
@@ -227,11 +256,10 @@ class Scene{
             #pragma omp parallel for
             for (int i = 0; i < camera.height; i++) {
                 for (int j = 0; j < camera.width; j++) {
-
                     Vector pixel(j-camera.width/2 + 0.5, -i +camera.height/2 - 0.5, -camera.width/(2*tan(camera.fov/2)));
                     pixel.normalize();
                     Ray ray(camera.position, pixel);
-                    Vector color = getColor(ray, 5);
+                    Vector color = getColor(ray, 10);
 
                     camera.image[(i*camera.width + j) * 3 + 0] = color[0];   // RED
                     camera.image[(i*camera.width + j) * 3 + 1] = color[1];  // GREEN
@@ -245,14 +273,16 @@ class Scene{
         vector<Sphere> spheres;
         Camera camera;
         Light light;
-        const float epsilon = 0.001;
+        const float epsilon = 0.01;
+        const float ambiantIndex = 1;
 };
 
 int main() {
     double pi = 3.14159;
-    Sphere sphere(Vector(15,0,0), Vector(0.5,0.2,0.5), 10, false);
-    Sphere sphere2(Vector(-15,0,0), Vector(0.5,0.2,0.5), 10, false);
-    Sphere wall1(Vector(0,0,-1000), Vector(0.2,0.5,0.1), 940);
+    Sphere sphere(Vector(15,0,0), Vector(0.5,0.2,0.5), 10, Texture::Mirror);
+    Sphere sphere2(Vector(-15,0,0), Vector(0.5,0.2,0.5), 10, Texture::Transparent, 1.5);
+    Sphere sphere3(Vector(0,15,0), Vector(0.5,0.2,0.5), 10);
+    Sphere wall1(Vector(0,0,-1000), Vector(0.6,0.6,0.2), 940);
     Sphere wall2(Vector(0,1000,0), Vector(0.5,0.2,0.1), 940);
     Sphere wall3(Vector(0,0,1000), Vector(0.5,0.3,0.2), 940);
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
@@ -264,6 +294,7 @@ int main() {
     Scene scene(camera, light);
     scene.addSphere(sphere);
     scene.addSphere(sphere2);
+    scene.addSphere(sphere3);
     scene.addSphere(wall1);
     scene.addSphere(wall2);
     scene.addSphere(wall3);
