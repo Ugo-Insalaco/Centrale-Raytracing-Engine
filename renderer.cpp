@@ -8,8 +8,8 @@
 #include "stb_image.h"
 
 #include <cmath>
-#include<iostream>
-
+#include <iostream>
+#include <stack>
 using namespace std;
 
 static inline double sqr(double x) { return x * x; }
@@ -72,10 +72,7 @@ double dot(const Vector& a, const Vector& b) {
 
 class Ray{
     public:
-        Ray(Vector& origin, Vector& direction){
-            this->origin = origin;
-            this->direction = direction;
-        }
+        Ray(Vector& origin, Vector& direction): origin(origin), direction(direction){}
 
         Vector origin;
         Vector direction;
@@ -104,7 +101,7 @@ class Sphere{
                 if(t1 >=0){
                     t = t1;
                 }
-                if (t2 >=0 && t2 <= t1){
+                if (t2 >=0 && (t2 <= t1 || t1 <= 0)){
                     t = t2;
                 }
                 return t;
@@ -166,7 +163,7 @@ class Scene{
             }
         };
 
-        Vector getColor(const Ray &ray, int numRebond){
+        Vector getColor(const Ray &ray, int numRebond, stack<int>& traversedSpheres){
             Vector noir(0,0,255);
             if(numRebond < 0){
                 return noir;
@@ -186,32 +183,51 @@ class Scene{
                     return getShadow(P, N, renderedSphere);
                     break;
                 case Texture::Mirror:{
-                    Vector newDirection = ray.direction - 2*dot(ray.direction, N)*N;
-                    Vector Peps = P + epsilon * N;
-                    Ray newRay(Peps, newDirection);
-                    return getColor(newRay, numRebond - 1);
+                    return getBounce(P, N, ray, numRebond, traversedSpheres);
                     break;
                 }
                 case Texture::Transparent: {
-                    float n1 = ambiantIndex, n2 = renderedSphere.refractionIndex;
-                    float dotN = dot(N, ray.direction);
-                    if(dotN > 0){
-                        swap(n1, n2);
-                        N = (-1)*N;
+                    float n1, n2;
+                    bool in;
+                    if(traversedSpheres.empty()){ // On rentre dans la première sphère
+                        n1 = ambiantIndex;
+                        n2 = renderedSphere.refractionIndex;
+                        in = true;
                     }
+                    else{
+                        n1 = spheres[traversedSpheres.top()].refractionIndex;
+                        if(traversedSpheres.top() == firstSphere){ // Si on sort de la sphère
+                            in = false;
+                            N = (-1)*N;
+                            traversedSpheres.pop();
+                            if(traversedSpheres.empty()){ // Si on sort de la dernière sphère de la pile
+                                n2 = ambiantIndex;
+                            }
+                            else{ // S'il reste des sphères dans la pile
+                                n2 = spheres[traversedSpheres.top()].refractionIndex;
+                            }
+                        }
+                        else{ // Si on rentre dans la sphère
+                            in = true;
+                            n2 = renderedSphere.refractionIndex;
+                        }
+                    }
+
+                    float dotN = dot(N, ray.direction);
                     float decision = 1-sqr(n1/n2)*(1-sqr(dotN));
-                    if(decision >= 0){
+
+                    if(decision > 0){
+                        if(in){
+                            traversedSpheres.push(firstSphere);
+                        }
                         Vector wtT = (n1/n2)*(ray.direction+(-dotN)*N);
                         Vector wtN = -sqrt(decision)*N;
                         Vector wt = wtT + wtN;
                         Vector Peps = P + (-1)*epsilon * N;
                         Ray newRay(Peps, wt);
-                        return getColor(newRay, numRebond - 1);
+                        return getColor(newRay, numRebond - 1, traversedSpheres);
                     }
-                    Vector newDirection = ray.direction - 2*dot(ray.direction, N)*N;
-                    Vector Peps = P + epsilon * N;
-                    Ray newRay(Peps, newDirection);
-                    return getColor(newRay, numRebond - 1);
+                    return getBounce(P, N, ray, numRebond, traversedSpheres);
                     break;
                 }
                 default: 
@@ -222,7 +238,14 @@ class Scene{
             return noir;
         }
 
-        Vector getShadow(Vector &point, Vector &normal, Sphere &renderedSphere){
+        Vector getBounce(const Vector &point, const Vector &normal, const Ray &ray, int numRebond, stack <int> &traversedSpheres){
+            Vector newDirection = ray.direction - 2*dot(ray.direction, normal)*normal;
+            Vector Peps = point + epsilon * normal;
+            Ray newRay(Peps, newDirection);
+            return getColor(newRay, numRebond - 1, traversedSpheres);
+        };
+
+        Vector getShadow(const Vector &point, const Vector &normal, Sphere &renderedSphere){
             Vector wi = (light.position - point);
             double d = wi.normalize();
 
@@ -253,13 +276,14 @@ class Scene{
         }
 
         void render(){
-            #pragma omp parallel for
+            // #pragma omp parallel for
             for (int i = 0; i < camera.height; i++) {
                 for (int j = 0; j < camera.width; j++) {
                     Vector pixel(j-camera.width/2 + 0.5, -i +camera.height/2 - 0.5, -camera.width/(2*tan(camera.fov/2)));
                     pixel.normalize();
                     Ray ray(camera.position, pixel);
-                    Vector color = getColor(ray, 10);
+                    stack<int> traversed;
+                    Vector color = getColor(ray, 10, traversed);
 
                     camera.image[(i*camera.width + j) * 3 + 0] = color[0];   // RED
                     camera.image[(i*camera.width + j) * 3 + 1] = color[1];  // GREEN
@@ -279,9 +303,11 @@ class Scene{
 
 int main() {
     double pi = 3.14159;
-    Sphere sphere(Vector(15,0,0), Vector(0.5,0.2,0.5), 10, Texture::Mirror);
-    Sphere sphere2(Vector(-15,0,0), Vector(0.5,0.2,0.5), 10, Texture::Transparent, 1.5);
-    Sphere sphere3(Vector(0,15,0), Vector(0.5,0.2,0.5), 10);
+    Sphere sphere(Vector(12,0,0), Vector(0.5,0.2,0.5), 6, Texture::Mirror);
+    Sphere sphere2(Vector(-12,15,0), Vector(0.5,0.2,0.5), 6);
+    Sphere sphere3(Vector(-12,0,0), Vector(0.5,0.2,0.5), 6, Texture::Transparent, 1.5);
+    Sphere sphere4(Vector(-12,0,0), Vector(0.5,0.2,0.5), 5, Texture::Transparent, 1);
+    Sphere sphere5(Vector(12,15,0), Vector(0.5,0.2,0.5), 6, Texture::Transparent, 1.5);
     Sphere wall1(Vector(0,0,-1000), Vector(0.6,0.6,0.2), 940);
     Sphere wall2(Vector(0,1000,0), Vector(0.5,0.2,0.1), 940);
     Sphere wall3(Vector(0,0,1000), Vector(0.5,0.3,0.2), 940);
@@ -295,6 +321,8 @@ int main() {
     scene.addSphere(sphere);
     scene.addSphere(sphere2);
     scene.addSphere(sphere3);
+    scene.addSphere(sphere4);
+    scene.addSphere(sphere5);
     scene.addSphere(wall1);
     scene.addSphere(wall2);
     scene.addSphere(wall3);

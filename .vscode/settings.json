@@ -6,6 +6,7 @@
         "vector": "cpp",
         "limits": "cpp",
         "xiosbase": "cpp",
-        "ostream": "cpp"
+        "ostream": "cpp",
+        "stack": "cpp"
     }
 }
