@@ -7,6 +7,9 @@
         "limits": "cpp",
         "xiosbase": "cpp",
         "ostream": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "random": "cpp",
+        "cstdlib": "cpp",
+        "algorithm": "cpp"
     }
 }

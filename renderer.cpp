@@ -7,10 +7,17 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include <omp.h>
 #include <cmath>
 #include <iostream>
 #include <stack>
+#include <random>
 using namespace std;
+
+const double M_PI = 3.141592654;
+
+default_random_engine engine[12];
+uniform_real_distribution<double> uniform(0.0, 1.0);
 
 static inline double sqr(double x) { return x * x; }
 
@@ -61,6 +68,9 @@ Vector operator*(const Vector& a, double b) {
 Vector operator*(double a, const Vector& b) {
 	return Vector(a*b[0], a*b[1], a*b[2]);
 }
+Vector operator*(const Vector& a, Vector& b){
+    return Vector(a[0] * b[0], a[1] * b[1], a[2] * b[2]);
+}
 Vector operator/(
     Vector& a, double b){
     return Vector(a[0]/b, a[1]/b, a[2]/b);
@@ -70,6 +80,9 @@ double dot(const Vector& a, const Vector& b) {
 	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
+Vector cross(const Vector& a, const Vector& b){
+    return Vector(a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]);
+}
 class Ray{
     public:
         Ray(Vector& origin, Vector& direction): origin(origin), direction(direction){}
@@ -179,9 +192,14 @@ class Scene{
 
                 switch (renderedSphere.texture)
                 {
-                case Texture::Diffuse:
-                    return getShadow(P, N, renderedSphere);
+                case Texture::Diffuse:{
+                    Vector directColor = getDirect(P, N, renderedSphere);
+                    Vector omega_i = random_cos(N);
+                    Vector Peps = P + epsilon * N;
+                    Vector indirect = getColor(Ray(Peps, omega_i), numRebond -1, traversedSpheres)*renderedSphere.albedo;
+                    return directColor + indirect;
                     break;
+                }
                 case Texture::Mirror:{
                     return getBounce(P, N, ray, numRebond, traversedSpheres);
                     break;
@@ -214,9 +232,13 @@ class Scene{
                     }
 
                     float dotN = dot(N, ray.direction);
+                    float k0 = pow(n1-n2, 2)/pow(n1+n2, 2);
+                    float R = k0 + (1 - k0)*pow((1-abs(dotN)), 5);
+                    int thread_id = omp_get_thread_num();
+                    double r = uniform(engine[thread_id]);
                     float decision = 1-sqr(n1/n2)*(1-sqr(dotN));
 
-                    if(decision > 0){
+                    if(decision > 0 && r > R){
                         if(in){
                             traversedSpheres.push(firstSphere);
                         }
@@ -237,7 +259,30 @@ class Scene{
             };
             return noir;
         }
+        Vector random_cos(const Vector& N){
+            int thread_id = omp_get_thread_num();
+            double r1 = uniform(engine[thread_id]);
+            double r2 = uniform(engine[thread_id]);
+            double r = sqrt(1 - r2);
+            double x = r*cos(2. * M_PI * r1);
+            double y = r*sin(2. * M_PI * r1);
+            double z = sqrt(r2);
 
+            Vector T1;
+            if((abs(N[0]) <= abs(N[1])) && (abs(N[0]) <= abs(N[2]))){
+                T1 = Vector(0, -N[2], N[1]);
+            }
+            if((abs(N[1]) <= abs(N[2])) && (abs(N[1]) <= abs(N[0]))){
+                T1 = Vector(-N[2], 0, N[0]);
+            }
+            else{
+                T1 = Vector(-N[1], N[0], 0);
+            }
+            T1.normalize();
+            Vector T2 = cross(N, T1);
+            T2.normalize();
+            return z*N+x*T1+y*T2;
+        }
         Vector getBounce(const Vector &point, const Vector &normal, const Ray &ray, int numRebond, stack <int> &traversedSpheres){
             Vector newDirection = ray.direction - 2*dot(ray.direction, normal)*normal;
             Vector Peps = point + epsilon * normal;
@@ -245,7 +290,7 @@ class Scene{
             return getColor(newRay, numRebond - 1, traversedSpheres);
         };
 
-        Vector getShadow(const Vector &point, const Vector &normal, Sphere &renderedSphere){
+        Vector getDirect(const Vector &point, const Vector &normal, Sphere &renderedSphere){
             Vector wi = (light.position - point);
             double d = wi.normalize();
 
@@ -267,27 +312,38 @@ class Scene{
             if(!visible || shadowed){
                 return Vector(0,0,0);
             }
-            double const c = light.I/(4*sqr(3.14159)*sqr(d))*dot(normal, wi);
-            Vector colors = c* (renderedSphere.albedo);
-            return Vector(
-                min(int(pow(colors[0], 1/2.2)), 255),
-                min(int(pow(colors[1], 1/2.2)), 255),
-                min(int(pow(colors[2], 1/2.2)), 255));
+            double const c = light.I/(4*sqr(M_PI)*sqr(d))*dot(normal, wi);
+            Vector colors = c * renderedSphere.albedo;
+            return colors;
         }
 
         void render(){
-            // #pragma omp parallel for
+            #pragma omp parallel for
             for (int i = 0; i < camera.height; i++) {
+                cout << (float)(i*camera.height)/(camera.height*camera.width) * 100<<"%" << endl;
                 for (int j = 0; j < camera.width; j++) {
-                    Vector pixel(j-camera.width/2 + 0.5, -i +camera.height/2 - 0.5, -camera.width/(2*tan(camera.fov/2)));
-                    pixel.normalize();
-                    Ray ray(camera.position, pixel);
-                    stack<int> traversed;
-                    Vector color = getColor(ray, 10, traversed);
+                    int NRays = 500;
+                    int NBounce = 6;
+                    Vector finalColor;
+                    for (int rayId = 0; rayId < NRays; rayId++){   
+                        int thread_id = omp_get_thread_num();
+                        double r1 = uniform(engine[thread_id]);
+                        double r2 = uniform(engine[thread_id]);
+                        double r = sqrt(-2*log(r1));
+                        double gx = r*cos(2*M_PI*r2)*0.7;
+                        double gy = r*cos(2*M_PI*r2)*0.7;
 
-                    camera.image[(i*camera.width + j) * 3 + 0] = color[0];   // RED
-                    camera.image[(i*camera.width + j) * 3 + 1] = color[1];  // GREEN
-                    camera.image[(i*camera.width + j) * 3 + 2] = color[2];  // BLUE
+                        Vector pixel(j-camera.width/2 + 0.5 + gx, -i +camera.height/2 - 0.5 + gy, -camera.width/(2*tan(camera.fov/2)));
+                        pixel.normalize();
+                        Ray ray(camera.position, pixel);
+                        stack<int> traversed;
+                        Vector color = getColor(ray,NBounce , traversed);
+                        finalColor += color;
+                    }
+                    finalColor = finalColor / NRays;
+                    camera.image[(i*camera.width + j) * 3 + 0] = min(int(pow(finalColor[0], 1/2.2)), 255);   // RED
+                    camera.image[(i*camera.width + j) * 3 + 1] = min(int(pow(finalColor[1], 1/2.2)), 255);  // GREEN
+                    camera.image[(i*camera.width + j) * 3 + 2] = min(int(pow(finalColor[2], 1/2.2)), 255);  // BLUE
                     
                 }
             }
@@ -302,7 +358,6 @@ class Scene{
 };
 
 int main() {
-    double pi = 3.14159;
     Sphere sphere(Vector(12,0,0), Vector(0.5,0.2,0.5), 6, Texture::Mirror);
     Sphere sphere2(Vector(-12,15,0), Vector(0.5,0.2,0.5), 6);
     Sphere sphere3(Vector(-12,0,0), Vector(0.5,0.2,0.5), 6, Texture::Transparent, 1.5);
@@ -314,7 +369,7 @@ int main() {
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
     Sphere wall5(Vector(1000,0,0), Vector(0.6,0.2,0.5), 940);
     Sphere wall6(Vector(-1000,0,0), Vector(0.1,0.5,0.5), 940);
-    Camera camera(Vector(0,0,55), pi/3, 1024, 1024);
+    Camera camera(Vector(0,0,55), M_PI/3, 1024, 1024);
     Light light(Vector(-10, 20, 40), 2E10);
 
     Scene scene(camera, light);
