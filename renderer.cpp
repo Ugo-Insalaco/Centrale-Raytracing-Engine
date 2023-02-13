@@ -91,7 +91,7 @@ class Ray{
         Vector direction;
 };
 
-enum class Texture {Diffuse, Mirror, Transparent};
+enum class Texture {Diffuse, Mirror, Transparent, Light};
 class Sphere{
     public:
         Sphere(Vector position, Vector albedo, double radius, Texture texture = Texture::Diffuse, float refractionIndex = 1){
@@ -160,6 +160,7 @@ class Scene{
         Scene(Camera camera, Light light): camera(camera), light(light){};
 
         void addSphere(Sphere sphere){
+            if(sphere.texture == Texture::Light) lightSpheres.push_back(spheres.size());
             spheres.push_back(sphere);
         };
         
@@ -192,8 +193,12 @@ class Scene{
 
                 switch (renderedSphere.texture)
                 {
+                case Texture::Light:{
+                    return noir;
+                }
                 case Texture::Diffuse:{
-                    Vector directColor = getDirect(P, N, renderedSphere);
+                    // Vector directColor = getDirect(P, N, renderedSphere);
+                    Vector directColor = getDirect2(P, N, renderedSphere, spheres[lightSpheres[0]]);
                     Vector omega_i = random_cos(N);
                     Vector Peps = P + epsilon * N;
                     Vector indirect = getColor(Ray(Peps, omega_i), numRebond -1, traversedSpheres)*renderedSphere.albedo;
@@ -289,53 +294,82 @@ class Scene{
             Ray newRay(Peps, newDirection);
             return getColor(newRay, numRebond - 1, traversedSpheres);
         };
+        Vector getDirect2(const Vector &point, const Vector &normal, Sphere &renderedSphere, Sphere &lightSphere){
+            Vector dirLum = lightSphere.position - point;
+            dirLum.normalize();
+            Vector dir_xprime = random_cos(-1 * dirLum);
+            Vector xprime = dir_xprime*lightSphere.radius + lightSphere.position;
+            Vector xxprime = xprime - point;
+            double d = xxprime.norm2();
+            xxprime.normalize();
 
+            Vector Peps = point + epsilon * normal;
+            Ray lightRay(Peps, xxprime);
+            bool shadowed = false;
+
+            float otherSphereIntersection;
+            int i;
+            intersect(lightRay, otherSphereIntersection, i);
+            if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < d && i != lightSpheres[0]){
+                shadowed = true;
+            }
+            double pdf = -dot(dirLum, dir_xprime)/(M_PI * sqr(lightSphere.radius));
+            // cout << (shadowed == false) << endl;
+            Vector returnColor = light.I / (4*sqr(M_PI*lightSphere.radius)) * (shadowed == false) * max(dot(normal, xxprime), 0.) * max(dot(dirLum, xxprime), 0.) / pdf / sqr(d) * renderedSphere.albedo;
+            return returnColor;
+        }
         Vector getDirect(const Vector &point, const Vector &normal, Sphere &renderedSphere){
             Vector wi = (light.position - point);
             double d = wi.normalize();
 
             Vector Peps = point + epsilon * normal;
             Ray lightRay(Peps, wi);
-            const float lightIntersection = renderedSphere.intersection(lightRay);
-            bool visible = lightIntersection == -1;
             bool shadowed = false;
 
-            if(visible){
-                float otherSphereIntersection;
-                int i;
-                intersect(lightRay, otherSphereIntersection, i);
-                if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < sqr(d)){
-                    shadowed = true;
-                }
+            float otherSphereIntersection;
+            int i;
+            intersect(lightRay, otherSphereIntersection, i);
+            if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < sqr(d)){
+                shadowed = true;
             }
 
-            if(!visible || shadowed){
-                return Vector(0,0,0);
-            }
-            double const c = light.I/(4*sqr(M_PI)*sqr(d))*dot(normal, wi);
-            Vector colors = c * renderedSphere.albedo;
+            double const c = light.I/(4*sqr(M_PI)*sqr(d))*dot(normal, wi) * (shadowed == 0) * (dot(normal, lightRay.direction) >= 0);
+            Vector colors = c/M_PI * renderedSphere.albedo;
             return colors;
         }
 
         void render(){
+            int pixel_done = 0;
             #pragma omp parallel for
             for (int i = 0; i < camera.height; i++) {
-                cout << (float)(i*camera.height)/(camera.height*camera.width) * 100<<"%" << endl;
+                cout << (float)(pixel_done)/(camera.height*camera.width) * 100<<"%" << endl;
                 for (int j = 0; j < camera.width; j++) {
+                    pixel_done++;
                     int NRays = 500;
-                    int NBounce = 6;
+                    int NBounce = 5;
                     Vector finalColor;
+                    double dfocus = 50;
                     for (int rayId = 0; rayId < NRays; rayId++){   
                         int thread_id = omp_get_thread_num();
                         double r1 = uniform(engine[thread_id]);
                         double r2 = uniform(engine[thread_id]);
                         double r = sqrt(-2*log(r1));
                         double gx = r*cos(2*M_PI*r2)*0.7;
-                        double gy = r*cos(2*M_PI*r2)*0.7;
+                        double gy = r*sin(2*M_PI*r2)*0.7;
+
+                        r1 = uniform(engine[thread_id]);
+                        r2 = uniform(engine[thread_id]);
+                        r = sqrt(-2*log(r1));
+                        double cx = r*cos(2*M_PI*r2)*0.7;
+                        double cy = r*sin(2*M_PI*r2)*0.7;
 
                         Vector pixel(j-camera.width/2 + 0.5 + gx, -i +camera.height/2 - 0.5 + gy, -camera.width/(2*tan(camera.fov/2)));
                         pixel.normalize();
-                        Ray ray(camera.position, pixel);
+                        Vector Pp = camera.position + dfocus * pixel;
+                        Vector Op = camera.position + Vector(cx, cy, 0);
+                        Vector newDir = (Pp + (-1) * Op);
+                        newDir.normalize();
+                        Ray ray(Op,newDir);
                         stack<int> traversed;
                         Vector color = getColor(ray,NBounce , traversed);
                         finalColor += color;
@@ -351,6 +385,7 @@ class Scene{
         };
     private:
         vector<Sphere> spheres;
+        vector<int> lightSpheres;
         Camera camera;
         Light light;
         const float epsilon = 0.01;
@@ -358,26 +393,30 @@ class Scene{
 };
 
 int main() {
-    Sphere sphere(Vector(12,0,0), Vector(0.5,0.2,0.5), 6, Texture::Mirror);
-    Sphere sphere2(Vector(-12,15,0), Vector(0.5,0.2,0.5), 6);
-    Sphere sphere3(Vector(-12,0,0), Vector(0.5,0.2,0.5), 6, Texture::Transparent, 1.5);
-    Sphere sphere4(Vector(-12,0,0), Vector(0.5,0.2,0.5), 5, Texture::Transparent, 1);
-    Sphere sphere5(Vector(12,15,0), Vector(0.5,0.2,0.5), 6, Texture::Transparent, 1.5);
+    Sphere sphere(Vector(0,6,20), Vector(0.5,0.2,0.5), 6);
+    Sphere sphere2(Vector(-15,12,10), Vector(0.5,0.2,0.5), 12, Texture::Mirror);
+    Sphere sphere3(Vector(0,20,0), Vector(0.5,0.2,0.5), 5, Texture::Transparent, 1.3);
+    // Sphere sphere6(Vector(0,18,0), Vector(0.5,0.2,0.5), 6);
+    Sphere sphere7(Vector(0,24,50), Vector(0.5,0.2,0.5), 2, Texture::Light);
+    // Sphere sphere4(Vector(-6,-3,0), Vector(0.5,0.2,0.5), 5);
+    // Sphere sphere5(Vector(8,-3,0), Vector(0.5,0.2,0.5), 6);
     Sphere wall1(Vector(0,0,-1000), Vector(0.6,0.6,0.2), 940);
     Sphere wall2(Vector(0,1000,0), Vector(0.5,0.2,0.1), 940);
     Sphere wall3(Vector(0,0,1000), Vector(0.5,0.3,0.2), 940);
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
     Sphere wall5(Vector(1000,0,0), Vector(0.6,0.2,0.5), 940);
     Sphere wall6(Vector(-1000,0,0), Vector(0.1,0.5,0.5), 940);
-    Camera camera(Vector(0,0,55), M_PI/3, 1024, 1024);
-    Light light(Vector(-10, 20, 40), 2E10);
+    Camera camera(Vector(0,10,55), M_PI/3, 1024, 1024);
+    Light light(Vector(-10, 20, 40), 2E12);
 
     Scene scene(camera, light);
     scene.addSphere(sphere);
     scene.addSphere(sphere2);
     scene.addSphere(sphere3);
-    scene.addSphere(sphere4);
-    scene.addSphere(sphere5);
+    // scene.addSphere(sphere4);
+    // scene.addSphere(sphere5);
+    // scene.addSphere(sphere6);
+    scene.addSphere(sphere7);
     scene.addSphere(wall1);
     scene.addSphere(wall2);
     scene.addSphere(wall3);
