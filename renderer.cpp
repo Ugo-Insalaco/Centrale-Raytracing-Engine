@@ -12,85 +12,23 @@
 #include <iostream>
 #include <stack>
 #include <random>
+// #include "./cpp/vector.cpp"
+#include "meshLoader.cpp"
 using namespace std;
 
 default_random_engine engine[4];
 uniform_real_distribution<double> uniform(0.0, 1.0);
 
 float PI = 3.141592654;
-bool dephtFlag = false;
-bool aliasFlag = false;
-bool fresnelFlag = false;
-bool indirectFlag = false;
-int NRays = 5;
-int NBounce = 5;
+bool dephtFlag = true;
+bool aliasFlag = true;
+bool fresnelFlag = true;
+bool indirectFlag = true;
+int NRays = 2;
+int NBounce = 3;
 double dfocus = 50;
-double lightI = 2E12;
+double lightI = 5E12;
 
-static inline double sqr(double x) { return x * x; }
-
-class Vector {
-public:
-	explicit Vector(double x = 0, double y = 0, double z = 0) {
-		coord[0] = x;
-		coord[1] = y;
-		coord[2] = z;
-	}
-	double& operator[](int i) { return coord[i]; }
-	double operator[](int i) const { return coord[i]; }
-
-	Vector& operator+=(const Vector& v) {
-		coord[0] += v[0];
-		coord[1] += v[1];
-		coord[2] += v[2];
-		return *this;
-	}
-
-	double norm2() const {
-		return sqr(coord[0]) + sqr(coord[1]) + sqr(coord[2]);
-	}
-
-    double normalize() {
-        double n = sqrt(this->norm2());
-        coord[0]/= n;
-        coord[1]/= n;
-        coord[2]/= n;
-        return n;
-    }
-
-    void print(){
-        cout << "x: " << coord[0] << " y: " << coord[1] << " z: " << coord[2] << endl;
-    }
-	double coord[3];
-};
-
-Vector operator+(const Vector& a, const Vector& b) {
-	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
-}
-Vector operator-(const Vector& a, const Vector& b) {
-	return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-}
-Vector operator*(const Vector& a, double b) {
-	return Vector(a[0]*b, a[1]*b, a[2]*b);
-}
-Vector operator*(double a, const Vector& b) {
-	return Vector(a*b[0], a*b[1], a*b[2]);
-}
-Vector operator*(const Vector& a, Vector& b){
-    return Vector(a[0] * b[0], a[1] * b[1], a[2] * b[2]);
-}
-Vector operator/(
-    Vector& a, double b){
-    return Vector(a[0]/b, a[1]/b, a[2]/b);
-}
-
-double dot(const Vector& a, const Vector& b) {
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-Vector cross(const Vector& a, const Vector& b){
-    return Vector(a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]);
-}
 class Ray{
     public:
         Ray(Vector& origin, Vector& direction): origin(origin), direction(direction){}
@@ -99,8 +37,51 @@ class Ray{
         Vector direction;
 };
 
-enum class Texture {Diffuse, Mirror, Transparent, Light};
-class Sphere{
+enum class Texture {Diffuse, Mirror, Transparent};
+
+class Geometry{
+    public:
+        virtual float intersection(Ray ray) = 0;
+
+        Vector position;
+        Vector albedo;
+        Texture texture;
+        float refractionIndex;
+};
+
+class Mesh : public Geometry {
+    public:
+        Mesh(){
+            meshData.readOBJ("cat.obj");
+            albedo = Vector(130, 0, 0);
+        };
+        float intersection(Ray ray){
+            double mint = -1;
+            for(unsigned faceIndex = 0; faceIndex < meshData.indices.size(); faceIndex++){
+                TriangleIndices face = meshData.indices[faceIndex];
+                Vector A = meshData.vertices[face.vtxi];
+                Vector B = meshData.vertices[face.vtxj];
+                Vector C = meshData.vertices[face.vtxk];
+                Vector e1 = B - A;
+                Vector e2 = C - A;
+                Vector N = cross(e1, e2);
+                double den = dot(ray.direction, N);
+                double beta = dot(e2, cross(A - ray.origin, ray.direction))/den;
+                double gamma = -dot(e1, cross(A - ray.origin, ray.direction))/den;
+                double alpha = 1 - beta - gamma;
+                double t = dot(A - ray.origin, N)/den;
+                if(alpha > 0 && alpha < 1 && beta > 0 && beta < 1 && gamma > 0 && gamma < 1 && t > 0){
+                    if(mint == -1 || (mint >= 0 && t <= mint)){
+                        mint = t;
+                    }
+                }
+            }
+            return mint;
+        }
+        TriangleMesh meshData;
+};
+
+class Sphere : public Geometry {
     public:
         Sphere(Vector position, Vector albedo, double radius, Texture texture = Texture::Diffuse, float refractionIndex = 1){
             this->position = position;
@@ -130,11 +111,7 @@ class Sphere{
             return -1;
         }
 
-        Vector position;
-        Vector albedo;
         double radius;
-        Texture texture;
-        float refractionIndex;
 };
 
 class Camera{
@@ -153,22 +130,23 @@ class Camera{
         vector<unsigned char> image;
 };
 
-class Light{
-    public: 
-        Light(Vector position, double I){
-            this->position = position;
-            this->I = I;
-        };
-        Vector position; 
-        double I;
-};
+// class Light{
+//     public: 
+//         Light(Vector position, double I){
+//             this->position = position;
+//             this->I = I;
+//         };
+//         Vector position; 
+//         double I;
+// };
 
 class Scene{
     public:
-        Scene(Camera camera, Light light): camera(camera), light(light){};
+        Sphere lightSphere;
+        Camera camera;
+        Scene(Camera camera, Sphere lightSphere): camera(camera), lightSphere(lightSphere){};
 
-        void addSphere(Sphere sphere){
-            if(sphere.texture == Texture::Light) lightSpheres.push_back(spheres.size());
+        void addGeometry(Geometry* sphere){
             spheres.push_back(sphere);
         };
         
@@ -176,8 +154,8 @@ class Scene{
             t = -1;
             index = -1;
             for (unsigned  sphereIndex = 0; sphereIndex < spheres.size(); sphereIndex++){
-                Sphere sphere = spheres.at(sphereIndex);
-                float t2 = sphere.intersection(ray);
+                Geometry* sphere = spheres.at(sphereIndex);
+                float t2 = sphere->intersection(ray);
                 if(t2 >= 0 && (t2 <= t || t == -1)){
                     t = t2;
                     index = sphereIndex;
@@ -194,23 +172,20 @@ class Scene{
             int firstSphere;
             intersect(ray, t, firstSphere);
             if(t >= 0){
-                Sphere renderedSphere = spheres.at(firstSphere);
+                Geometry* renderedSphere = spheres.at(firstSphere);
                 Vector P = ray.origin + t * ray.direction;
-                Vector N = (P - renderedSphere.position);
+                Vector N = (P - renderedSphere->position);
                 N.normalize();
 
-                switch (renderedSphere.texture)
+                switch (renderedSphere->texture)
                 {
-                case Texture::Light:{
-                    return noir;
-                }
                 case Texture::Diffuse:{
-                    Vector directColor = getDirect2(P, N, renderedSphere, spheres[lightSpheres[0]]);
+                    Vector directColor = getDirect2(P, N, renderedSphere, lightSphere);
                     Vector indirect(0,0,0);
                     if(indirectFlag){
                         Vector omega_i = random_cos(N);
                         Vector Peps = P + epsilon * N;
-                        indirect = getColor(Ray(Peps, omega_i), numRebond -1, traversedSpheres)*renderedSphere.albedo;
+                        indirect = getColor(Ray(Peps, omega_i), numRebond -1, traversedSpheres)*renderedSphere->albedo;
                     }
                     return directColor + indirect;
                     break;
@@ -224,11 +199,11 @@ class Scene{
                     bool in;
                     if(traversedSpheres.empty()){ // On rentre dans la première sphère
                         n1 = ambiantIndex;
-                        n2 = renderedSphere.refractionIndex;
+                        n2 = renderedSphere->refractionIndex;
                         in = true;
                     }
                     else{
-                        n1 = spheres[traversedSpheres.top()].refractionIndex;
+                        n1 = spheres[traversedSpheres.top()]->refractionIndex;
                         if(traversedSpheres.top() == firstSphere){ // Si on sort de la sphère
                             in = false;
                             N = (-1)*N;
@@ -237,12 +212,12 @@ class Scene{
                                 n2 = ambiantIndex;
                             }
                             else{ // S'il reste des sphères dans la pile
-                                n2 = spheres[traversedSpheres.top()].refractionIndex;
+                                n2 = spheres[traversedSpheres.top()]->refractionIndex;
                             }
                         }
                         else{ // Si on rentre dans la sphère
                             in = true;
-                            n2 = renderedSphere.refractionIndex;
+                            n2 = renderedSphere->refractionIndex;
                         }
                     }
 
@@ -311,7 +286,7 @@ class Scene{
             Ray newRay(Peps, newDirection);
             return getColor(newRay, numRebond - 1, traversedSpheres);
         };
-        Vector getDirect2(const Vector &point, const Vector &normal, Sphere &renderedSphere, Sphere &lightSphere){
+        Vector getDirect2(const Vector &point, const Vector &normal, Geometry* renderedGeometry, Sphere lightSphere){
             Vector dirLum = lightSphere.position - point;
             dirLum.normalize();
             Vector dir_xprime = random_cos(-1 * dirLum);
@@ -327,32 +302,32 @@ class Scene{
             float otherSphereIntersection;
             int i;
             intersect(lightRay, otherSphereIntersection, i);
-            if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < d && i != lightSpheres[0]){
+            if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < d){
                 shadowed = true;
             }
             double pdf = -dot(dirLum, dir_xprime)/(PI * sqr(lightSphere.radius));
-            Vector returnColor = light.I / (4*sqr(PI*lightSphere.radius)) * (shadowed == false) * max(dot(normal, xxprime), 0.) * max(dot(dirLum, xxprime), 0.) / pdf / sqr(d) * renderedSphere.albedo;
+            Vector returnColor = lightI / (4*sqr(PI*lightSphere.radius)) * (shadowed == false) * max(dot(normal, xxprime), 0.) * max(dot(dirLum, xxprime), 0.) / pdf / sqr(d) * renderedGeometry->albedo;
             return returnColor;
         }
-        Vector getDirect(const Vector &point, const Vector &normal, Sphere &renderedSphere){
-            Vector wi = (light.position - point);
-            double d = wi.normalize();
+        // Vector getDirect(const Vector &point, const Vector &normal, Geometry* renderedSphere){
+        //     Vector wi = (light.position - point);
+        //     double d = wi.normalize();
 
-            Vector Peps = point + epsilon * normal;
-            Ray lightRay(Peps, wi);
-            bool shadowed = false;
+        //     Vector Peps = point + epsilon * normal;
+        //     Ray lightRay(Peps, wi);
+        //     bool shadowed = false;
 
-            float otherSphereIntersection;
-            int i;
-            intersect(lightRay, otherSphereIntersection, i);
-            if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < sqr(d)){
-                shadowed = true;
-            }
+        //     float otherSphereIntersection;
+        //     int i;
+        //     intersect(lightRay, otherSphereIntersection, i);
+        //     if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < sqr(d)){
+        //         shadowed = true;
+        //     }
 
-            double const c = light.I/(4*sqr(PI)*sqr(d))*dot(normal, wi) * (shadowed == 0) * (dot(normal, lightRay.direction) >= 0);
-            Vector colors = c/PI * renderedSphere.albedo;
-            return colors;
-        }
+        //     double const c = lightI/(4*sqr(PI)*sqr(d))*dot(normal, wi) * (shadowed == 0) * (dot(normal, lightRay.direction) >= 0);
+        //     Vector colors = c/PI * renderedSphere.albedo;
+        //     return colors;
+        // }
 
         void render(){
             int pixel_done = 0;
@@ -408,10 +383,8 @@ class Scene{
             stbi_write_png("image.png", camera.width, camera.height, 3, &(camera.image[0]), 0);
         };
     private:
-        vector<Sphere> spheres;
-        vector<int> lightSpheres;
-        Camera camera;
-        Light light;
+        vector<Geometry*> spheres;
+        // Light light;
         const float epsilon = 0.01;
         const float ambiantIndex = 1;
 };
@@ -421,7 +394,7 @@ int main() {
     Sphere sphere2(Vector(-15,12,10), Vector(0.5,0.2,0.5), 12, Texture::Mirror);
     Sphere sphere3(Vector(0,20,0), Vector(0.5,0.2,0.5), 5, Texture::Transparent, 1.3);
     // Sphere sphere6(Vector(0,18,0), Vector(0.5,0.2,0.5), 6);
-    Sphere sphere7(Vector(0,24,50), Vector(0.5,0.2,0.5), 2, Texture::Light);
+    Sphere sphere7(Vector(0,15,10), Vector(0.5,0.2,0.5), 2);
     // Sphere sphere4(Vector(-6,-3,0), Vector(0.5,0.2,0.5), 5);
     // Sphere sphere5(Vector(8,-3,0), Vector(0.5,0.2,0.5), 6);
     Sphere wall1(Vector(0,0,-1000), Vector(0.6,0.6,0.2), 940);
@@ -430,23 +403,23 @@ int main() {
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
     Sphere wall5(Vector(1000,0,0), Vector(0.6,0.2,0.5), 940);
     Sphere wall6(Vector(-1000,0,0), Vector(0.1,0.5,0.5), 940);
-    Camera camera(Vector(0,10,55), PI/3, 1024, 1024);
-    Light light(Vector(-10, 20, 40), lightI);
-
-    Scene scene(camera, light);
-    scene.addSphere(sphere);
-    scene.addSphere(sphere2);
-    scene.addSphere(sphere3);
-    // scene.addSphere(sphere4);
-    // scene.addSphere(sphere5);
-    // scene.addSphere(sphere6);
-    scene.addSphere(sphere7);
-    scene.addSphere(wall1);
-    scene.addSphere(wall2);
-    scene.addSphere(wall3);
-    scene.addSphere(wall4);
-    scene.addSphere(wall5);
-    scene.addSphere(wall6);
+    Camera camera(Vector(0,10,55), PI/3, 128, 128);
+    // Light light(Vector(-10, 10, 40), lightI);
+    Mesh cat;
+    Scene scene(camera, sphere7);
+    // scene.addGeometry(&sphere);
+    // scene.addGeometry(&sphere2);
+    // scene.addGeometry(&sphere3);
+    // scene.addGeometry(sphere4);
+    // scene.addGeometry(sphere5);
+    // scene.addGeometry(sphere6);
+    scene.addGeometry(&wall1);
+    scene.addGeometry(&wall2);
+    scene.addGeometry(&wall3);
+    scene.addGeometry(&wall4);
+    scene.addGeometry(&wall5);
+    scene.addGeometry(&wall6);
+    scene.addGeometry(&cat);
     scene.render();
 
     return 0;
