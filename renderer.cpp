@@ -14,10 +14,18 @@
 #include <random>
 using namespace std;
 
-const double M_PI = 3.141592654;
-
-default_random_engine engine[12];
+default_random_engine engine[4];
 uniform_real_distribution<double> uniform(0.0, 1.0);
+
+float PI = 3.141592654;
+bool dephtFlag = false;
+bool aliasFlag = false;
+bool fresnelFlag = false;
+bool indirectFlag = false;
+int NRays = 5;
+int NBounce = 5;
+double dfocus = 50;
+double lightI = 2E12;
 
 static inline double sqr(double x) { return x * x; }
 
@@ -197,11 +205,13 @@ class Scene{
                     return noir;
                 }
                 case Texture::Diffuse:{
-                    // Vector directColor = getDirect(P, N, renderedSphere);
                     Vector directColor = getDirect2(P, N, renderedSphere, spheres[lightSpheres[0]]);
-                    Vector omega_i = random_cos(N);
-                    Vector Peps = P + epsilon * N;
-                    Vector indirect = getColor(Ray(Peps, omega_i), numRebond -1, traversedSpheres)*renderedSphere.albedo;
+                    Vector indirect(0,0,0);
+                    if(indirectFlag){
+                        Vector omega_i = random_cos(N);
+                        Vector Peps = P + epsilon * N;
+                        indirect = getColor(Ray(Peps, omega_i), numRebond -1, traversedSpheres)*renderedSphere.albedo;
+                    }
                     return directColor + indirect;
                     break;
                 }
@@ -237,8 +247,15 @@ class Scene{
                     }
 
                     float dotN = dot(N, ray.direction);
-                    float k0 = pow(n1-n2, 2)/pow(n1+n2, 2);
-                    float R = k0 + (1 - k0)*pow((1-abs(dotN)), 5);
+                    float R;
+                    if(fresnelFlag){
+                        float k0 = pow(n1-n2, 2)/pow(n1+n2, 2);
+                        R = k0 + (1 - k0)*pow((1-abs(dotN)), 5);
+                    }
+                    else{
+                        R = 0;
+                    }
+
                     int thread_id = omp_get_thread_num();
                     double r = uniform(engine[thread_id]);
                     float decision = 1-sqr(n1/n2)*(1-sqr(dotN));
@@ -269,8 +286,8 @@ class Scene{
             double r1 = uniform(engine[thread_id]);
             double r2 = uniform(engine[thread_id]);
             double r = sqrt(1 - r2);
-            double x = r*cos(2. * M_PI * r1);
-            double y = r*sin(2. * M_PI * r1);
+            double x = r*cos(2. * PI * r1);
+            double y = r*sin(2. * PI * r1);
             double z = sqrt(r2);
 
             Vector T1;
@@ -313,9 +330,8 @@ class Scene{
             if(otherSphereIntersection > 0 && sqr(otherSphereIntersection)*lightRay.direction.norm2() < d && i != lightSpheres[0]){
                 shadowed = true;
             }
-            double pdf = -dot(dirLum, dir_xprime)/(M_PI * sqr(lightSphere.radius));
-            // cout << (shadowed == false) << endl;
-            Vector returnColor = light.I / (4*sqr(M_PI*lightSphere.radius)) * (shadowed == false) * max(dot(normal, xxprime), 0.) * max(dot(dirLum, xxprime), 0.) / pdf / sqr(d) * renderedSphere.albedo;
+            double pdf = -dot(dirLum, dir_xprime)/(PI * sqr(lightSphere.radius));
+            Vector returnColor = light.I / (4*sqr(PI*lightSphere.radius)) * (shadowed == false) * max(dot(normal, xxprime), 0.) * max(dot(dirLum, xxprime), 0.) / pdf / sqr(d) * renderedSphere.albedo;
             return returnColor;
         }
         Vector getDirect(const Vector &point, const Vector &normal, Sphere &renderedSphere){
@@ -333,8 +349,8 @@ class Scene{
                 shadowed = true;
             }
 
-            double const c = light.I/(4*sqr(M_PI)*sqr(d))*dot(normal, wi) * (shadowed == 0) * (dot(normal, lightRay.direction) >= 0);
-            Vector colors = c/M_PI * renderedSphere.albedo;
+            double const c = light.I/(4*sqr(PI)*sqr(d))*dot(normal, wi) * (shadowed == 0) * (dot(normal, lightRay.direction) >= 0);
+            Vector colors = c/PI * renderedSphere.albedo;
             return colors;
         }
 
@@ -345,31 +361,39 @@ class Scene{
                 cout << (float)(pixel_done)/(camera.height*camera.width) * 100<<"%" << endl;
                 for (int j = 0; j < camera.width; j++) {
                     pixel_done++;
-                    int NRays = 500;
-                    int NBounce = 5;
                     Vector finalColor;
-                    double dfocus = 50;
                     for (int rayId = 0; rayId < NRays; rayId++){   
                         int thread_id = omp_get_thread_num();
-                        double r1 = uniform(engine[thread_id]);
-                        double r2 = uniform(engine[thread_id]);
-                        double r = sqrt(-2*log(r1));
-                        double gx = r*cos(2*M_PI*r2)*0.7;
-                        double gy = r*sin(2*M_PI*r2)*0.7;
+                        Vector pixel;
+                        if(aliasFlag){
+                            double r1 = uniform(engine[thread_id]);
+                            double r2 = uniform(engine[thread_id]);
+                            double r = sqrt(-2*log(r1));
+                            double gx = r*cos(2*PI*r2)*0.7;
+                            double gy = r*sin(2*PI*r2)*0.7;
+                            pixel = Vector(j-camera.width/2 + 0.5 + gx, -i +camera.height/2 - 0.5 + gy, -camera.width/(2*tan(camera.fov/2)));
+                        }
+                        else{
+                            pixel = Vector(j-camera.width/2 + 0.5, -i +camera.height/2 - 0.5, -camera.width/(2*tan(camera.fov/2)));
+                        }
 
-                        r1 = uniform(engine[thread_id]);
-                        r2 = uniform(engine[thread_id]);
-                        r = sqrt(-2*log(r1));
-                        double cx = r*cos(2*M_PI*r2)*0.7;
-                        double cy = r*sin(2*M_PI*r2)*0.7;
-
-                        Vector pixel(j-camera.width/2 + 0.5 + gx, -i +camera.height/2 - 0.5 + gy, -camera.width/(2*tan(camera.fov/2)));
                         pixel.normalize();
-                        Vector Pp = camera.position + dfocus * pixel;
-                        Vector Op = camera.position + Vector(cx, cy, 0);
-                        Vector newDir = (Pp + (-1) * Op);
-                        newDir.normalize();
-                        Ray ray(Op,newDir);
+                        
+                        Ray ray(camera.position, pixel);
+                        if(dephtFlag){
+                            double r1 = uniform(engine[thread_id]);
+                            double r2 = uniform(engine[thread_id]);
+                            double r = sqrt(-2*log(r1));
+                            double cx = r*cos(2*PI*r2)*0.7;
+                            double cy = r*sin(2*PI*r2)*0.7;
+
+                            Vector Pp = camera.position + dfocus * pixel;
+                            Vector Op = camera.position + Vector(cx, cy, 0);
+                            Vector newDir = (Pp + (-1) * Op);
+                            newDir.normalize();
+                            ray = Ray(Op,newDir);
+                        }
+
                         stack<int> traversed;
                         Vector color = getColor(ray,NBounce , traversed);
                         finalColor += color;
@@ -406,8 +430,8 @@ int main() {
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
     Sphere wall5(Vector(1000,0,0), Vector(0.6,0.2,0.5), 940);
     Sphere wall6(Vector(-1000,0,0), Vector(0.1,0.5,0.5), 940);
-    Camera camera(Vector(0,10,55), M_PI/3, 1024, 1024);
-    Light light(Vector(-10, 20, 40), 2E12);
+    Camera camera(Vector(0,10,55), PI/3, 1024, 1024);
+    Light light(Vector(-10, 20, 40), lightI);
 
     Scene scene(camera, light);
     scene.addSphere(sphere);
