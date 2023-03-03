@@ -21,9 +21,9 @@ public:
   ~TriangleMesh() {}
     TriangleMesh() {};
     
-    void readOBJ(const char* obj) {
+    void readOBJ(const char* obj, float scale) {
  
-        char matfile[255];
+        // char matfile[255];
         char grp[255];
  
         FILE* f;
@@ -192,7 +192,9 @@ public:
  
         }
         fclose(f);
- 
+        for(unsigned i=0; i<vertices.size(); i++){
+            vertices[i] = scale*vertices[i];
+        }
     }
  
     std::vector<TriangleIndices> indices;

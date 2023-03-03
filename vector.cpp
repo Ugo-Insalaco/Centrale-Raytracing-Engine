@@ -34,6 +34,16 @@ public:
     void print(){
         cout << "x: " << coord[0] << " y: " << coord[1] << " z: " << coord[2] << endl;
     }
+
+	int getLongestAxis(){
+		if(coord[0] >= coord[1] && coord[0] >= coord[2]) {
+			return 0;
+		}
+		if(coord[1] >= coord[0] && coord[1] >= coord[2]) {
+			return 1;
+		}
+		return 2;
+	}
 	double coord[3];
 };
 
@@ -63,4 +73,8 @@ double dot(const Vector& a, const Vector& b) {
 
 Vector cross(const Vector& a, const Vector& b){
     return Vector(a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]);
+}
+
+Vector computeBarycenter(const Vector& a, const Vector& b, const Vector& c){
+	return 0.33*Vector(a[0]+b[0]+c[0],a[1]+b[1]+c[1],a[2]+b[2]+c[2]);
 }
