@@ -21,7 +21,7 @@ public:
   ~TriangleMesh() {}
     TriangleMesh() {};
     
-    void readOBJ(const char* obj, float scale) {
+    void readOBJ(const char* obj) {
  
         // char matfile[255];
         char grp[255];
@@ -192,11 +192,39 @@ public:
  
         }
         fclose(f);
+    }
+    
+    void scale(double scale_ratio){
         for(unsigned i=0; i<vertices.size(); i++){
-            vertices[i] = scale*vertices[i];
+            vertices[i] = scale_ratio*vertices[i];
         }
     }
- 
+
+    void translate(Vector translation){
+        for(unsigned i=0; i<vertices.size(); i++){
+            vertices[i] = vertices[i] + translation;
+        }
+    }
+
+    void rotate(Vector center, Vector rotation){
+        float alpha = rotation[0];
+        float beta = rotation[1];
+        float gamma = rotation[2];
+        translate(-1*center);
+        for(unsigned i=0; i<vertices.size(); i++){
+            Vector v = vertices[i];
+            vertices[i] = Vector(v[0], cos(alpha)*v[1]-sin(alpha)*v[2], sin(alpha)*v[1]+cos(alpha)*v[2]); 
+        }
+        for(unsigned i=0; i<vertices.size(); i++){
+            Vector v = vertices[i];
+            vertices[i] = Vector(cos(beta)*v[0]-sin(beta)*v[2], v[1], sin(beta)*v[0]+cos(beta)*v[2]); 
+        }
+        for(unsigned i=0; i<vertices.size(); i++){
+            Vector v = vertices[i];
+            vertices[i] = Vector(cos(gamma)*v[0]-sin(gamma)*v[1], sin(gamma)*v[0]+cos(gamma)*v[1], v[2]); 
+        }
+        translate(center);
+    }
     std::vector<TriangleIndices> indices;
     std::vector<Vector> vertices;
     std::vector<Vector> normals;

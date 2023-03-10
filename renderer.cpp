@@ -13,6 +13,7 @@
 #include <stack>
 #include <random>
 #include <list>
+#include <chrono>
 #include "meshLoader.cpp"
 using namespace std;
 
@@ -20,13 +21,14 @@ default_random_engine engine[4];
 uniform_real_distribution<double> uniform(0.0, 1.0);
 
 float PI = 3.141592654;
-bool dephtFlag = true;
+bool dephtFlag = false;
 bool aliasFlag = true;
 bool fresnelFlag = true;
 bool indirectFlag = true;
-int NRays = 5;
-int NBounce = 5;
-double dfocus = 60;
+bool smoothFlag = false;
+int NRays = 10;
+int NBounce = 6;
+double dfocus = 5;
 double lightI = 1E13;
 
 class Ray{
@@ -167,14 +169,27 @@ class Mesh : public Geometry {
         return node;
     };
     public:
-        Mesh(Vector albedo, Texture texture = Texture::Diffuse){
-            meshData.readOBJ("toad.obj", 0.1);
+        Mesh(const char* file, Vector albedo, Texture texture = Texture::Diffuse){
+            meshData.readOBJ(file);
             this->root = createBoxNode(0, meshData.indices.size());
             this->albedo = albedo;
             this->texture = texture;
+            this->refractionIndex = 1.5;
             root->print();
         };
+        void scale(double scale_ratio){
+            meshData.scale(scale_ratio);
+        };
+        void translate(Vector translation){
+            meshData.translate(translation);
+        };
 
+        void rotate(Vector center, Vector rotation){
+            meshData.rotate(center, rotation);
+        }
+        void updateBoxNode(){
+            this->root = createBoxNode(0, meshData.indices.size());
+        }
         void intersection(Ray ray, float& t, Vector& normal){
             t = -1;
             if(root->boundingBox.intersection(ray)){
@@ -208,6 +223,13 @@ class Mesh : public Geometry {
                             double ttemp = dot(A - ray.origin, N)/den;
                             if(alpha > 0 && alpha < 1 && beta > 0 && beta < 1 && gamma > 0 && gamma < 1 && ttemp > 0){
                                 if(ttemp <= bestt){
+                                    if(smoothFlag){
+                                         Vector NA = meshData.normals[face.vtxi];
+                                        Vector NB = meshData.normals[face.vtxj];
+                                        Vector NC = meshData.normals[face.vtxk];
+                                        N = alpha*NA+beta*NB+gamma*NC;
+                                        N.normalize();
+                                    }
                                     bestt = ttemp;
                                     normal = N;
                                 }
@@ -279,16 +301,16 @@ class Scene{
     public:
         Scene(Camera camera, Sphere lightSphere): lightSphere(lightSphere), camera(camera){};
 
-        void addGeometry(Geometry* sphere){
-            spheres.push_back(sphere);
+        void addGeometry(Geometry* geometry){
+            geometries.push_back(geometry);
         };
         
         void intersect(Ray ray, float& t, int& index, Vector& normal){
             t = -1;
             index = -1;
             Vector normalTemp;
-            for (unsigned  sphereIndex = 0; sphereIndex < spheres.size(); sphereIndex++){
-                Geometry* sphere = spheres.at(sphereIndex);
+            for (unsigned  sphereIndex = 0; sphereIndex < geometries.size(); sphereIndex++){
+                Geometry* sphere = geometries.at(sphereIndex);
                 float t2;
                 sphere->intersection(ray, t2, normalTemp);
                 if(t2 >= 0 && (t2 <= t || t == -1)){
@@ -309,7 +331,7 @@ class Scene{
             Vector N;
             intersect(ray, t, firstSphere, N);
             if(t >= 0){
-                Geometry* renderedSphere = spheres.at(firstSphere);
+                Geometry* renderedSphere = geometries.at(firstSphere);
                 Vector P = ray.origin + t * ray.direction;
                 N.normalize();
 
@@ -339,7 +361,7 @@ class Scene{
                         in = true;
                     }
                     else{
-                        n1 = spheres[traversedSpheres.top()]->refractionIndex;
+                        n1 = geometries[traversedSpheres.top()]->refractionIndex;
                         if(traversedSpheres.top() == firstSphere){ // Si on sort de la sphère
                             in = false;
                             N = (-1)*N;
@@ -348,7 +370,7 @@ class Scene{
                                 n2 = ambiantIndex;
                             }
                             else{ // S'il reste des sphères dans la pile
-                                n2 = spheres[traversedSpheres.top()]->refractionIndex;
+                                n2 = geometries[traversedSpheres.top()]->refractionIndex;
                             }
                         }
                         else{ // Si on rentre dans la sphère
@@ -370,7 +392,6 @@ class Scene{
                     int thread_id = omp_get_thread_num();
                     double r = uniform(engine[thread_id]);
                     float decision = 1-sqr(n1/n2)*(1-sqr(dotN));
-
                     if(decision > 0 && r > R){
                         if(in){
                             traversedSpheres.push(firstSphere);
@@ -501,7 +522,7 @@ class Scene{
             stbi_write_png("image.png", camera.width, camera.height, 3, &(camera.image[0]), 0);
         };
     private:
-        vector<Geometry*> spheres;
+        vector<Geometry*> geometries;
         Sphere lightSphere;
         Camera camera;
         // Light light;
@@ -510,6 +531,7 @@ class Scene{
 };
 
 int main() {
+    auto start = chrono::high_resolution_clock::now();
     Sphere sphere(Vector(0,6,20), Vector(0.5,0.2,0.5), 6);
     Sphere sphere2(Vector(-15,12,10), Vector(0.5,0.2,0.5), 12, Texture::Mirror);
     Sphere sphere3(Vector(0,20,0), Vector(0.5,0.2,0.5), 5, Texture::Transparent, 1.3);
@@ -520,8 +542,12 @@ int main() {
     Sphere wall4(Vector(0,-1000,0), Vector(0.1,0.2,0.5), 990);
     Sphere wall5(Vector(1000,0,0), Vector(0.6,0.2,0.5), 940);
     Sphere wall6(Vector(-1000,0,0), Vector(0.1,0.5,0.5), 940);
-    Camera camera(Vector(0,10,55), PI/3, 1024, 1024);
-    Mesh mesh(Vector(0.5, 0, 0.3));
+    Camera camera(Vector(0,10,55), PI/3, 512, 512);
+    Mesh mesh("./cat/cat.obj", Vector(0,0.5,0.3), Texture::Mirror);
+    mesh.scale(0.5);
+    mesh.rotate(Vector(0,0,0), Vector(0, PI/2, 0));
+    mesh.translate(Vector(0, 0, 40));
+    mesh.updateBoxNode();
     Scene scene(camera, sphere7);
     scene.addGeometry(&wall1);
     scene.addGeometry(&wall2);
@@ -531,6 +557,10 @@ int main() {
     scene.addGeometry(&wall6);
     scene.addGeometry(&mesh);
     scene.render();
-
+    auto stop = chrono::high_resolution_clock::now();
+    auto duration = chrono::duration_cast<chrono::seconds>(stop - start);
+    cout << duration.count() << endl;
+    double temp;
+    cin >> temp;
     return 0;
 }
