@@ -21,9 +21,9 @@ float PI = 3.141592654;
 bool dephtFlag = false;
 bool aliasFlag = true;
 bool fresnelFlag = true;
-bool indirectFlag = false;
+bool indirectFlag = true;
 bool smoothFlag = false;
-int NRays = 1;
+int NRays = 128;
 int NBounce = 4;
 double dfocus = 5;
 double lightI = 1E13;
@@ -581,7 +581,7 @@ int main() {
     // Sphere wall5(Vector(1000,0,0), Vector(0,0,0), 940);
     // Sphere wall6(Vector(-1000,0,0), Vector(0,0,0), 940);
 
-    Camera camera(Vector(20,11,55), Vector(0.05*PI/8, 1.46*PI/8, 0), PI/48, 512, 512);
+    Camera camera(Vector(20,11,55), Vector(0.05*PI/8, 1.46*PI/8, 0), PI/48, 1024, 1024);
     Scene scene(camera, sphere7);
 
     Mesh rainbow("Rainbow", Vector(0,0,0), Texture::Diffuse);
