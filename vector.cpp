@@ -78,3 +78,28 @@ Vector cross(const Vector& a, const Vector& b){
 Vector computeBarycenter(const Vector& a, const Vector& b, const Vector& c){
 	return 0.33*Vector(a[0]+b[0]+c[0],a[1]+b[1]+c[1],a[2]+b[2]+c[2]);
 }
+
+void translate(Vector& vector, Vector translation){
+	vector[0] += translation[0];
+	vector[1] += translation[1];
+	vector[2] += translation[2];
+}
+
+void rotateVector(Vector& vector, Vector center, Vector rotation){
+		float alpha = rotation[0];
+        float beta = rotation[1];
+        float gamma = rotation[2];
+        translate(vector, -1*center);
+		vector[0] = vector[0];
+		vector[1] = cos(alpha)*vector[1]-sin(alpha)*vector[2];
+		vector[2] = sin(alpha)*vector[1]+cos(alpha)*vector[2];
+
+		vector[0] = cos(beta)*vector[0]-sin(beta)*vector[2];
+		vector[1] = vector[1];
+		vector[2] = sin(beta)*vector[0]+cos(beta)*vector[2];
+
+		vector[0] = cos(gamma)*vector[0]-sin(gamma)*vector[1];
+		vector[1] = sin(gamma)*vector[0]+cos(gamma)*vector[1];
+		vector[2] = vector[2]; 
+        translate(vector, center);
+	}

@@ -1,45 +1,107 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include <string>
 #include <iostream>
 #include <stdio.h>
-#include <algorithm>
 #include <vector>
+#include <map>
+#include <cmath>
 #include "vector.cpp"
+#include <cstring>
+using namespace std;
 
 class TriangleIndices {
 public:
-    TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {
+    TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, string group = "", bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {
     };
     int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
     int uvi, uvj, uvk;  // indices within the uv coordinates array
     int ni, nj, nk;  // indices within the normals array
-    int group;       // face group
+    string group;       // face group
 };
  
- 
+class Material {
+    public:
+        Material(){};
+        int width=0, height=0;
+        Vector Kd;
+        string KdMap="";
+        vector<Vector> texture;
+};
+
 class TriangleMesh {
 public:
   ~TriangleMesh() {}
-    TriangleMesh() {};
-    
-    void readOBJ(const char* obj) {
+    TriangleMesh(string shapeName) {
+        this->rotation = Vector(0,0,0);
+        this->path = "./Models/"+shapeName;
+        this->fileName = shapeName;
+        string mtlFile = this->path+"/"+this->fileName+".mtl";
+        string objFile = this->path+"/"+this->fileName+".obj";
+        readMTL(mtlFile);
+        readOBJ(objFile);
+        loadTextures(path);
+    };
+    void readMTL(string mtl) {
+        char grp[255];
+        char mapFile[255];
+        FILE* f;
+        f = fopen(mtl.c_str(), "r");
+        string curGroup = "";
+        Material* mat = new Material();
+
+        while (!feof(f)) {
+            char line[255];
+            if (!fgets(line, 255, f)) break;
+
+            string linetrim(line);
+            linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
+            strcpy(line, linetrim.c_str());
+
+            if (line[0] == 'n' && line[1] == 'e' && line[2] == 'w') {
+                if(curGroup != ""){
+                    materials.insert(pair<string, Material*>(curGroup, mat));
+                }
+                mat = new Material();
+                sscanf(line, "newmtl %[^\n]\n", grp);
+                curGroup = grp;
+            }
+
+            if (line[0] == 'K' && line[1] == 'd') {
+                Vector vec;
+                sscanf(line, "Kd %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+                mat->Kd = vec;
+            }
+
+            if (line[0] == 'm' && line[1] == 'a' && line[2] == 'p') {
+                sscanf(line, "map_Kd %[^\n]\n", mapFile);
+                mat->KdMap = mapFile;
+            }
+
+        }
+        materials.insert(pair<string, Material*>(curGroup, mat));
+        fclose(f);
+    }
+    void readOBJ(string obj) {
  
         // char matfile[255];
         char grp[255];
  
         FILE* f;
-        f = fopen(obj, "r");
-        int curGroup = -1;
+        f = fopen(obj.c_str(), "r");
+        string curGroup = "";
         while (!feof(f)) {
             char line[255];
             if (!fgets(line, 255, f)) break;
  
-            std::string linetrim(line);
+            string linetrim(line);
             linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
             strcpy(line, linetrim.c_str());
  
             if (line[0] == 'u' && line[1] == 's') {
                 sscanf(line, "usemtl %[^\n]\n", grp);
-                curGroup++;
+                curGroup = grp;
             }
  
             if (line[0] == 'v' && line[1] == ' ') {
@@ -47,9 +109,9 @@ public:
  
                 Vector col;
                 if (sscanf(line, "v %lf %lf %lf %lf %lf %lf\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
-                    col[0] = std::min(1., std::max(0., col[0]));
-                    col[1] = std::min(1., std::max(0., col[1]));
-                    col[2] = std::min(1., std::max(0., col[2]));
+                    col[0] = min(1., max(0., col[0]));
+                    col[1] = min(1., max(0., col[1]));
+                    col[2] = min(1., max(0., col[2]));
  
                     vertices.push_back(vec);
                     vertexcolors.push_back(col);
@@ -206,10 +268,18 @@ public:
         }
     }
 
+    Vector relativeTranslate(Vector translation){
+        Vector newTranslation = translation;
+        rotateVector(newTranslation, Vector(0,0,0), rotation);
+        translate(newTranslation);
+        return newTranslation;
+    }
+
     void rotate(Vector center, Vector rotation){
         float alpha = rotation[0];
         float beta = rotation[1];
         float gamma = rotation[2];
+        this->rotation += rotation;
         translate(-1*center);
         for(unsigned i=0; i<vertices.size(); i++){
             Vector v = vertices[i];
@@ -225,10 +295,48 @@ public:
         }
         translate(center);
     }
-    std::vector<TriangleIndices> indices;
-    std::vector<Vector> vertices;
-    std::vector<Vector> normals;
-    std::vector<Vector> uvs;
-    std::vector<Vector> vertexcolors;
-    
-};
+
+    void relativeRotate(Vector center, Vector rotation){
+        Vector rot = this->rotation;
+        rotate(center, -1*this->rotation);
+        rotate(center, rotation);
+        rotate(center, rot);
+    }
+
+    void loadTextures(string path){
+        map<string, Material*>::iterator it;
+        for (it = materials.begin(); it != materials.end(); it++)
+        {
+            if(it->second->KdMap != ""){
+                int width, height, bpp;
+                string filePath = path+"/"+it->second->KdMap;
+                unsigned char* tex = stbi_load(filePath.c_str(), &width, &height, &bpp, 3);
+                vector<Vector> texture;
+                string textureFile = it->first; 
+                texture.resize(width * height);
+                for (int i=0; i<width*height; i++){
+                    texture[i] = Vector(pow(tex[i*3] / 255., 2.2), pow(tex[i*3+1] / 255., 2.2), pow(tex[i*3+2] / 255., 2.2));
+                }
+                texture[0].print();
+                it->second->texture = texture;
+                it->second->width = width;
+                it->second->height = height;
+            }
+        }
+    }
+
+    void inverseNormals(){
+        for(unsigned i=0; i<normals.size(); i++){
+            normals[i] = (-1)*normals[i];
+        }
+    }
+    string path;
+    string fileName;
+    vector<TriangleIndices> indices;
+    map<string, Material*> materials;
+    vector<Vector> vertices;
+    vector<Vector> normals;
+    vector<Vector> uvs;
+    vector<Vector> vertexcolors;
+    Vector rotation;
+};      
