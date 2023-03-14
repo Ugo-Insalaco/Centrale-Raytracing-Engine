@@ -1,51 +1,48 @@
+#include "../h/vector.h"
 using namespace std;
 
 static inline double sqr(double x) { return x * x; }
 
-class Vector {
-public:
-	explicit Vector(double x = 0, double y = 0, double z = 0) {
-		coord[0] = x;
-		coord[1] = y;
-		coord[2] = z;
+Vector::Vector(double x, double y, double z) {
+	this->coord[0] = x;
+	this->coord[1] = y;
+	this->coord[2] = z;
+}
+double& Vector::operator[](int i) { return this->coord[i]; }
+double Vector::operator[](int i) const { return this->coord[i]; }
+
+Vector& Vector::operator+=(const Vector& v) {
+	this->coord[0] += v[0];
+	this->coord[1] += v[1];
+	this->coord[2] += v[2];
+	return *this;
+}
+
+double Vector::norm2() const {
+	return sqr(coord[0]) + sqr(coord[1]) + sqr(coord[2]);
+}
+
+double Vector::normalize() {
+	double n = sqrt(this->norm2());
+	coord[0]/= n;
+	coord[1]/= n;
+	coord[2]/= n;
+	return n;
+}
+
+void Vector::print(){
+	cout << "x: " << coord[0] << " y: " << coord[1] << " z: " << coord[2] << endl;
+}
+
+int Vector::getLongestAxis(){
+	if(coord[0] >= coord[1] && coord[0] >= coord[2]) {
+		return 0;
 	}
-	double& operator[](int i) { return coord[i]; }
-	double operator[](int i) const { return coord[i]; }
-
-	Vector& operator+=(const Vector& v) {
-		coord[0] += v[0];
-		coord[1] += v[1];
-		coord[2] += v[2];
-		return *this;
+	if(coord[1] >= coord[0] && coord[1] >= coord[2]) {
+		return 1;
 	}
-
-	double norm2() const {
-		return sqr(coord[0]) + sqr(coord[1]) + sqr(coord[2]);
-	}
-
-    double normalize() {
-        double n = sqrt(this->norm2());
-        coord[0]/= n;
-        coord[1]/= n;
-        coord[2]/= n;
-        return n;
-    }
-
-    void print(){
-        cout << "x: " << coord[0] << " y: " << coord[1] << " z: " << coord[2] << endl;
-    }
-
-	int getLongestAxis(){
-		if(coord[0] >= coord[1] && coord[0] >= coord[2]) {
-			return 0;
-		}
-		if(coord[1] >= coord[0] && coord[1] >= coord[2]) {
-			return 1;
-		}
-		return 2;
-	}
-	double coord[3];
-};
+	return 2;
+}
 
 Vector operator+(const Vector& a, const Vector& b) {
 	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
