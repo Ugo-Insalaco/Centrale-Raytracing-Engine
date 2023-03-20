@@ -10,13 +10,15 @@ class Mesh : public Geometry {
     private:
     BoxNode* createBoxNode(int startIndex, int endIndex);
     public:
-        Mesh(string shapeName, Vector albedo, Texture texture = Texture::Diffuse);
+        Mesh(string shapeName, Vector albedo, Texture texture = Texture::Diffuse, float refractionIndex=1);
         void scale(double scale_ratio);
         void translate(Vector translation);
         Vector relativeTranslate(Vector translation);
         void rotate(Vector center, Vector rotation);
         void relativeRotate(Vector center, Vector rotation);
         void updateBoxNode();
+
+        Vector naiveIntersection(Ray ray, float& t, Vector& normal);
         Vector intersection(Ray ray, float& t, Vector& normal);
 
         TriangleMesh meshData;

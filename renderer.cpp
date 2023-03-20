@@ -6,10 +6,11 @@
 float PI = 3.141592654;
 bool dephtFlag = false;
 bool aliasFlag = true;
-bool fresnelFlag = true;
-bool indirectFlag = false;
+bool fresnelFlag = false;
+bool indirectFlag = true;
 bool smoothFlag = false;
-int NRays = 1;
+bool bvhFlag = true;
+int NRays = 4;
 int NBounce = 4;
 double dfocus = 5;
 double lightI = 1E13;
@@ -24,9 +25,7 @@ double lightI = 1E13;
 #include <vector>
 #include "./cpp/vector.cpp"
 #include "./cpp/utils.cpp"
-#include "./cpp/material.cpp"
 #include "./cpp/ray.cpp"
-#include "./h/geometry.h"
 #include "./cpp/mesh.cpp"
 #include "./cpp/sphere.cpp"
 #include "./cpp/camera.cpp"
@@ -35,11 +34,10 @@ double lightI = 1E13;
 using namespace std;
 
 int main() {
-    #include "./scenes/mariokart.cpp"
+    #include "./scenes/classic.cpp"
     auto start = chrono::high_resolution_clock::now();
     
-
-    mk_scene.render();
+    c_scene.render();
     auto stop = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::seconds>(stop - start);
     cout << duration.count() << endl;

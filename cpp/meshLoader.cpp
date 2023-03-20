@@ -10,6 +10,7 @@
 #include <map>
 #include <cmath>
 #include "../h/meshLoader.h"
+#include "material.cpp"
 #include "triangleIndices.cpp"
 #include <cstring>
 using namespace std;
